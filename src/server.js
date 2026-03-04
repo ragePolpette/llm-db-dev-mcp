@@ -8,7 +8,6 @@ import { runReadQuery, runWriteQuery } from "./lib/db-client.js";
 import { assertReadOnlySql, assertWriteSql } from "./lib/sql-guard.js";
 
 const config = getDevConfig();
-const sessionWriteConfirmationToken = config.writeConfirmationToken || randomUUID();
 
 function asTextResult(payload) {
     return {
@@ -38,7 +37,7 @@ function createMcpServer() {
         tools: [
             {
                 name: "db_dev_read",
-                description: "Esegue query SQL di sola lettura sul DB di sviluppo (SELECT/WITH).",
+                description: "DB DEV: sola lettura SQL (SELECT/WITH). Usare per analisi e verifica dati in ambiente di sviluppo.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -60,11 +59,14 @@ function createMcpServer() {
             },
             {
                 name: "db_dev_write",
-                description: "Esegue query di scrittura sul DB di sviluppo SOLO con conferma esplicita.",
+                description: "DB DEV: scrittura SQL consentita solo dopo conferma esplicita dell'utente in chat. DELETE e DROP sono sempre bloccati. Non richiede token/chiavi.",
                 inputSchema: {
                     type: "object",
                     properties: {
-                        sql: { type: "string", description: "Query SQL di scrittura (INSERT/UPDATE/DELETE/...)." },
+                        sql: {
+                            type: "string",
+                            description: "Query SQL di scrittura consentita (INSERT/UPDATE/MERGE/ALTER/TRUNCATE/CREATE). DELETE e DROP vietati."
+                        },
                         parameters: {
                             type: "object",
                             description: "Parametri query (key/value).",
@@ -72,18 +74,26 @@ function createMcpServer() {
                         },
                         confirmedByUser: {
                             type: "boolean",
-                            description: "Deve essere true solo dopo conferma utente."
+                            description: "Deve essere true solo dopo risposta esplicita dell'utente (es: 'si, procedi')."
                         },
-                        confirmationToken: {
+                        userApprovalText: {
                             type: "string",
-                            description: "Token di conferma scrittura."
+                            description: "Testo breve della conferma utente ricevuta (audit locale)."
                         },
                         reason: {
                             type: "string",
                             description: "Motivazione della modifica."
                         }
                     },
-                    required: ["sql", "confirmedByUser", "confirmationToken"]
+                    required: ["sql", "confirmedByUser", "userApprovalText"]
+                }
+            },
+            {
+                name: "db_dev_info",
+                description: "Spiega scopo, limiti e regole operative del MCP DB DEV.",
+                inputSchema: {
+                    type: "object",
+                    properties: {}
                 }
             }
         ]
@@ -112,10 +122,13 @@ function createMcpServer() {
 
         if (name === "db_dev_write") {
             if (!args?.confirmedByUser) {
-                throw new Error("Scrittura bloccata: serve conferma esplicita dell'utente (confirmedByUser=true).");
+                throw new Error(
+                    "Scrittura bloccata: prima chiedi all'utente 'Posso eseguire questo UPDATE/INSERT?' e riprova con confirmedByUser=true."
+                );
             }
-            if (args?.confirmationToken !== sessionWriteConfirmationToken) {
-                throw new Error("Scrittura bloccata: confirmationToken non valido.");
+            const userApprovalText = String(args?.userApprovalText || "").trim();
+            if (!userApprovalText) {
+                throw new Error("Scrittura bloccata: userApprovalText obbligatorio (riporta la conferma utente).");
             }
 
             const sqlText = assertWriteSql(args?.sql);
@@ -129,8 +142,26 @@ function createMcpServer() {
                 success: true,
                 mode: "write",
                 reason: args?.reason || "",
+                userApprovalText,
                 rowsAffected: result.rowsAffected,
                 output: result.output
+            });
+        }
+
+        if (name === "db_dev_info") {
+            return asTextResult({
+                server: "llm-db-dev-mcp",
+                purpose: "Accesso SQL al DB di sviluppo (analisi + write controllate).",
+                capabilities: [
+                    "db_dev_read: SELECT/WITH",
+                    "db_dev_write: write consentite solo dopo consenso utente esplicito, con DELETE/DROP sempre bloccati"
+                ],
+                constraints: [
+                    "Nessun token di conferma richiesto",
+                    "L'agente deve chiedere il permesso prima di ogni write",
+                    "DELETE e DROP sono sempre vietati",
+                    "SQL write comunque validata da sql-guard"
+                ]
             });
         }
 
@@ -151,8 +182,73 @@ function createErrorResponse(message) {
     };
 }
 
-const app = createMcpExpressApp({ host: config.server.host });
+function normalizeHeaderValue(rawValue) {
+    if (Array.isArray(rawValue)) {
+        return typeof rawValue[0] === "string" ? rawValue[0].trim() : "";
+    }
+    return typeof rawValue === "string" ? rawValue.trim() : "";
+}
+
+function normalizeOrigin(origin) {
+    try {
+        const parsed = new URL(origin);
+        const protocol = parsed.protocol.toLowerCase();
+        const host = parsed.hostname.toLowerCase();
+        if (!["http:", "https:"].includes(protocol) || !host) {
+            return null;
+        }
+        return parsed.port ? `${protocol}//${host}:${parsed.port}` : `${protocol}//${host}`;
+    } catch {
+        return null;
+    }
+}
+
+function isOriginAllowed(origin, allowedOrigins) {
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (!normalizedOrigin) return false;
+    for (const rawPattern of allowedOrigins) {
+        const pattern = String(rawPattern || "").trim().toLowerCase();
+        if (!pattern) continue;
+        if (pattern === normalizedOrigin) return true;
+        if (pattern.endsWith(":*")) {
+            const prefix = pattern.slice(0, -2);
+            if (normalizedOrigin.startsWith(`${prefix}:`)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function withOriginValidation(req, res, next) {
+    const origin = normalizeHeaderValue(req.headers.origin);
+    if (!origin) {
+        next();
+        return;
+    }
+    if (!isOriginAllowed(origin, config.server.allowedOrigins)) {
+        res.status(403).json(createErrorResponse("Forbidden: Origin not allowed"));
+        return;
+    }
+    res.set("Vary", "Origin");
+    res.set("Access-Control-Allow-Origin", origin);
+    next();
+}
+
+function sendMissingSession(res) {
+    res.status(400).json(createErrorResponse("Bad Request: Missing session ID"));
+}
+
+function sendUnknownSession(res) {
+    res.status(404).json(createErrorResponse("Not Found: Invalid or expired session ID"));
+}
+
+const app = createMcpExpressApp({
+    host: config.server.host,
+    allowedHosts: config.server.allowedHosts?.length ? config.server.allowedHosts : undefined
+});
 const transports = {};
+app.use(withOriginValidation);
 
 app.get("/health", (_req, res) => {
     res.json({
@@ -163,7 +259,9 @@ app.get("/health", (_req, res) => {
 });
 
 app.post(config.server.path, async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"];
+    const rawSessionId = req.headers["mcp-session-id"];
+    const sessionId = normalizeHeaderValue(rawSessionId);
+    const hasSessionHeader = rawSessionId !== undefined;
     let transport;
 
     try {
@@ -173,10 +271,21 @@ app.post(config.server.path, async (req, res) => {
             return;
         }
 
+        if (sessionId && !transports[sessionId]) {
+            sendUnknownSession(res);
+            return;
+        }
+
+        if (hasSessionHeader && !sessionId) {
+            sendUnknownSession(res);
+            return;
+        }
+
         if (!sessionId && isInitializeRequest(req.body)) {
             const server = createMcpServer();
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
+                enableJsonResponse: !config.server.sseEnabled,
                 onsessioninitialized: sid => {
                     transports[sid] = transport;
                 }
@@ -194,7 +303,7 @@ app.post(config.server.path, async (req, res) => {
             return;
         }
 
-        res.status(400).json(createErrorResponse("Bad Request: No valid session ID provided"));
+        sendMissingSession(res);
     } catch (error) {
         const message = error instanceof Error ? error.message : "Internal server error";
         if (!res.headersSent) {
@@ -204,9 +313,20 @@ app.post(config.server.path, async (req, res) => {
 });
 
 app.get(config.server.path, async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"];
+    if (!config.server.sseEnabled) {
+        res.status(405).set("Allow", "POST, DELETE").send("Method Not Allowed");
+        return;
+    }
+
+    const rawSessionId = req.headers["mcp-session-id"];
+    if (rawSessionId === undefined) {
+        sendMissingSession(res);
+        return;
+    }
+
+    const sessionId = normalizeHeaderValue(rawSessionId);
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send("Invalid or missing session ID");
+        sendUnknownSession(res);
         return;
     }
 
@@ -215,15 +335,21 @@ app.get(config.server.path, async (req, res) => {
     } catch (error) {
         if (!res.headersSent) {
             const message = error instanceof Error ? error.message : "Internal server error";
-            res.status(500).send(message);
+            res.status(500).json(createErrorResponse(message));
         }
     }
 });
 
 app.delete(config.server.path, async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"];
+    const rawSessionId = req.headers["mcp-session-id"];
+    if (rawSessionId === undefined) {
+        sendMissingSession(res);
+        return;
+    }
+
+    const sessionId = normalizeHeaderValue(rawSessionId);
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send("Invalid or missing session ID");
+        sendUnknownSession(res);
         return;
     }
 
@@ -232,7 +358,7 @@ app.delete(config.server.path, async (req, res) => {
     } catch (error) {
         if (!res.headersSent) {
             const message = error instanceof Error ? error.message : "Internal server error";
-            res.status(500).send(message);
+            res.status(500).json(createErrorResponse(message));
         }
     }
 });
@@ -245,6 +371,5 @@ app.listen(config.server.port, config.server.host, error => {
     console.log(
         `llm-db-dev-mcp listening at http://${config.server.host}:${config.server.port}${config.server.path}`
     );
-    console.log("[SECURITY] db_dev_write richiede conferma esplicita utente + confirmationToken.");
-    console.log(`[SECURITY] confirmationToken sessione: ${sessionWriteConfirmationToken}`);
+    console.log("[SECURITY] db_dev_write richiede conferma esplicita utente; DELETE e DROP sono sempre bloccati.");
 });
