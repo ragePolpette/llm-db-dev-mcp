@@ -4,8 +4,8 @@ MCP server per DB di sviluppo SQL Server.
 
 Regole implementate:
 - Lettura: sempre consentita (`db_dev_read`).
-- Scrittura: consentita solo con `approvalToken` one-time emesso dal server.
-- Sicurezza hard-block: `DELETE` e `DROP` sono sempre vietati.
+- Scrittura: consentita solo con `approvalToken` one-time emesso dopo conferma out-of-band con challenge locale.
+- Sicurezza hard-block: `DELETE`, `DROP`, `EXEC` e `EXECUTE` sono sempre vietati.
 
 ## Setup
 
@@ -47,10 +47,12 @@ Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
   - SQL consentita: solo `SELECT` / `WITH`.
   - Blocca keyword write/admin (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `EXEC`, ...).
 - `db_dev_write`
-  - Query write consentita solo con token di approvazione emesso dal server.
-  - `DELETE` e `DROP` sempre bloccati dal guard SQL.
+  - Query write consentita solo con token di approvazione emesso dopo conferma out-of-band.
+  - `DELETE`, `DROP`, `EXEC` ed `EXECUTE` sempre bloccati dal guard SQL.
 - `db_dev_request_write_approval`
-  - Prepara una write, valida la SQL e restituisce un token one-time per l'esecuzione.
+  - Prepara una write, valida la SQL e restituisce `approvalId`; il challenge viene mostrato solo nel log del server.
+- `db_dev_confirm_write_approval`
+  - Converte `approvalId` + challenge locale in `approvalToken` one-time per l'esecuzione.
 - `db_dev_info`
   - Spiega scopo e limiti del MCP DB DEV.
 
@@ -61,9 +63,10 @@ File: `config/mcp.servers.example.json`
 ## Flusso write sicuro
 
 1. Chiamare `db_dev_request_write_approval` con SQL, parametri e motivo.
-2. Ottenere `approvalToken` one-time dal server.
-3. Solo dopo conferma umana reale, chiamare `db_dev_write` con la stessa SQL, gli stessi parametri e il token.
-4. Se il token scade o SQL/parametri cambiano, richiedere un nuovo token.
+2. Leggere il `challenge` solo dal log locale del server; non viene restituito al chiamante MCP.
+3. Solo dopo conferma umana reale, chiamare `db_dev_confirm_write_approval` con `approvalId` + `challenge` per ottenere `approvalToken`.
+4. Chiamare `db_dev_write` con la stessa SQL, gli stessi parametri e `approvalToken`.
+5. Se il token scade o SQL/parametri cambiano, richiedere una nuova approvazione.
 
 ## Note operative
 

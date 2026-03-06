@@ -61,7 +61,9 @@ let envLoaded = false;
 function loadDotEnvFromCwd(skipKeys = []) {
     if (envLoaded) return;
     envLoaded = true;
-    const skipped = new Set(skipKeys.map(key => String(key || "").trim()).filter(Boolean));
+    const skipped = new Set(
+        skipKeys.map(key => String(key || "").trim().toLowerCase()).filter(Boolean)
+    );
 
     const envPath = path.resolve(process.cwd(), ".env");
     if (!fs.existsSync(envPath)) return;
@@ -74,7 +76,7 @@ function loadDotEnvFromCwd(skipKeys = []) {
         if (idx <= 0) continue;
 
         const key = line.slice(0, idx).trim();
-        if (skipped.has(key)) {
+        if (skipped.has(key.toLowerCase())) {
             continue;
         }
         let value = line.slice(idx + 1);

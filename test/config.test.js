@@ -32,6 +32,34 @@ test("getDevConfig requires DB_DEV_CONNECTION_STRING from runtime env", async ()
     }
 });
 
+test("getDevConfig ignores case-variant DB_DEV_CONNECTION_STRING entries from dot env", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-db-dev-config-"));
+    const originalCwd = process.cwd();
+    const originalEnv = process.env.DB_DEV_CONNECTION_STRING;
+
+    try {
+        process.chdir(tempDir);
+        fs.writeFileSync(path.join(tempDir, ".env"), "db_dev_connection_string=from-dot-env-lower\n");
+        delete process.env.DB_DEV_CONNECTION_STRING;
+
+        const moduleUrl = new URL(`../src/lib/config.js?case=${Date.now()}-lowercase`, import.meta.url);
+        const configModule = await import(moduleUrl);
+
+        assert.throws(
+            () => configModule.getDevConfig(),
+            /DB_DEV_CONNECTION_STRING deve essere fornita a runtime/
+        );
+    } finally {
+        process.chdir(originalCwd);
+        if (originalEnv === undefined) {
+            delete process.env.DB_DEV_CONNECTION_STRING;
+        } else {
+            process.env.DB_DEV_CONNECTION_STRING = originalEnv;
+        }
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+});
+
 test("getDevConfig accepts DB_DEV_CONNECTION_STRING from process env", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-db-dev-config-"));
     const originalCwd = process.cwd();

@@ -63,7 +63,7 @@ function createMcpServer() {
             },
             {
                 name: "db_dev_request_write_approval",
-                description: "DB DEV: valida una write SQL e restituisce un token one-time da usare in db_dev_write dopo conferma umana out-of-band.",
+                description: "DB DEV: valida una write SQL, crea una richiesta di approvazione e mostra un challenge solo nel log server per conferma umana out-of-band.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -85,8 +85,26 @@ function createMcpServer() {
                 }
             },
             {
+                name: "db_dev_confirm_write_approval",
+                description: "DB DEV: conferma una richiesta di write con approvalId e challenge letto dal log del server, poi restituisce un token one-time da usare in db_dev_write.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        approvalId: {
+                            type: "string",
+                            description: "Identificatore della richiesta emessa da db_dev_request_write_approval."
+                        },
+                        challenge: {
+                            type: "string",
+                            description: "Challenge mostrato solo nel log locale del server."
+                        }
+                    },
+                    required: ["approvalId", "challenge"]
+                }
+            },
+            {
                 name: "db_dev_write",
-                description: "DB DEV: scrittura SQL consentita solo con token one-time emesso da db_dev_request_write_approval. DELETE e DROP sono sempre bloccati.",
+                description: "DB DEV: scrittura SQL consentita solo con token one-time emesso da db_dev_confirm_write_approval. DELETE, DROP, EXEC ed EXECUTE sono sempre bloccati.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -151,11 +169,29 @@ function createMcpServer() {
                 parameters: args?.parameters,
                 reason: args?.reason
             });
+            console.error(
+                `[WRITE-APPROVAL] approvalId=${approval.approvalId} challenge=${approval.challenge} expiresAt=${approval.expiresAt}`
+            );
             return asTextResult({
                 success: true,
                 mode: "write-approval",
                 sqlText,
                 reason: args?.reason || "",
+                approvalId: approval.approvalId,
+                expiresAt: approval.expiresAt
+            });
+        }
+
+        if (name === "db_dev_confirm_write_approval") {
+            const approvalId = String(args?.approvalId || "").trim();
+            const challenge = String(args?.challenge || "").trim();
+            if (!approvalId || !challenge) {
+                throw new Error("Conferma bloccata: approvalId e challenge sono obbligatori.");
+            }
+            const approval = writeApprovals.confirm({ approvalId, challenge });
+            return asTextResult({
+                success: true,
+                mode: "write-confirmation",
                 approvalToken: approval.token,
                 expiresAt: approval.expiresAt
             });
@@ -167,7 +203,7 @@ function createMcpServer() {
                 throw new Error("Scrittura bloccata: approvalToken obbligatorio.");
             }
             const sqlText = assertWriteSql(args?.sql);
-            const approval = writeApprovals.consume({
+            const approval = writeApprovals.consumeExecution({
                 token: approvalToken,
                 sqlText,
                 parameters: args?.parameters
@@ -195,12 +231,14 @@ function createMcpServer() {
                 purpose: "Accesso SQL al DB di sviluppo (analisi + write controllate).",
                 capabilities: [
                     "db_dev_read: SELECT/WITH",
-                    "db_dev_request_write_approval: emette token one-time per una write valida",
-                    "db_dev_write: write consentite solo con approvalToken valido, con DELETE/DROP sempre bloccati"
+                    "db_dev_request_write_approval: crea una richiesta valida e stampa il challenge nel log server",
+                    "db_dev_confirm_write_approval: conferma out-of-band tramite approvalId + challenge",
+                    "db_dev_write: write consentite solo con approvalToken valido, con DELETE/DROP/EXEC/EXECUTE sempre bloccati"
                 ],
                 constraints: [
-                    "Il token di conferma è generato dal server e vale per una sola SQL/parametri",
-                    "DELETE e DROP sono sempre vietati",
+                    "Il challenge di conferma è visibile solo nel log locale del server",
+                    "Il token di esecuzione è generato dal server e vale per una sola SQL/parametri",
+                    "DELETE, DROP, EXEC ed EXECUTE sono sempre vietati",
                     "SQL write comunque validata da sql-guard"
                 ]
             });
@@ -429,5 +467,5 @@ app.listen(config.server.port, config.server.host, error => {
     console.log(
         `llm-db-dev-mcp listening at http://${config.server.host}:${config.server.port}${config.server.path}`
     );
-    console.log("[SECURITY] db_dev_write richiede conferma esplicita utente; DELETE e DROP sono sempre bloccati.");
+    console.log("[SECURITY] db_dev_write richiede conferma out-of-band con challenge locale; DELETE, DROP, EXEC ed EXECUTE sono sempre bloccati.");
 });

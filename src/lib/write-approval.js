@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 function stableSerialize(value) {
     if (value === null || typeof value !== "object") {
@@ -14,26 +14,47 @@ function stableSerialize(value) {
 }
 
 export function createWriteApprovalStore({ ttlMs = 5 * 60 * 1000 } = {}) {
-    const approvals = new Map();
+    const pendingApprovals = new Map();
+    const executionTokens = new Map();
 
     function nowMs() {
         return Date.now();
     }
 
     function purgeExpired(now = nowMs()) {
-        for (const [token, approval] of approvals.entries()) {
+        for (const [approvalId, approval] of pendingApprovals.entries()) {
             if (approval.expiresAt <= now) {
-                approvals.delete(token);
+                pendingApprovals.delete(approvalId);
             }
         }
+        for (const [token, approval] of executionTokens.entries()) {
+            if (approval.expiresAt <= now) {
+                executionTokens.delete(token);
+            }
+        }
+    }
+
+    function buildChallenge() {
+        return randomBytes(4).toString("hex").toUpperCase();
+    }
+
+    function equalsToken(left, right) {
+        const leftBuffer = Buffer.from(String(left || ""), "utf8");
+        const rightBuffer = Buffer.from(String(right || ""), "utf8");
+        if (leftBuffer.length !== rightBuffer.length) {
+            return false;
+        }
+        return timingSafeEqual(leftBuffer, rightBuffer);
     }
 
     return {
         issue({ sqlText, parameters, reason }) {
             purgeExpired();
-            const token = randomUUID();
+            const approvalId = randomUUID();
+            const challenge = buildChallenge();
             const issuedAt = nowMs();
-            approvals.set(token, {
+            pendingApprovals.set(approvalId, {
+                challenge,
                 sqlText,
                 parametersDigest: stableSerialize(parameters || {}),
                 reason: String(reason || "").trim(),
@@ -41,17 +62,42 @@ export function createWriteApprovalStore({ ttlMs = 5 * 60 * 1000 } = {}) {
                 expiresAt: issuedAt + ttlMs
             });
             return {
-                token,
+                approvalId,
+                challenge,
                 expiresAt: new Date(issuedAt + ttlMs).toISOString()
             };
         },
-        consume({ token, sqlText, parameters }, now = nowMs()) {
+        confirm({ approvalId, challenge }, now = nowMs()) {
             purgeExpired(now);
-            const approval = approvals.get(token);
+            const approval = pendingApprovals.get(approvalId);
+            if (!approval) {
+                throw new Error("Richiesta di approvazione non valida o scaduta.");
+            }
+            if (!equalsToken(approval.challenge, challenge)) {
+                throw new Error("Challenge di conferma non valida.");
+            }
+            pendingApprovals.delete(approvalId);
+            const token = randomUUID();
+            executionTokens.set(token, {
+                sqlText: approval.sqlText,
+                parametersDigest: approval.parametersDigest,
+                reason: approval.reason,
+                issuedAt: approval.issuedAt,
+                approvedAt: now,
+                expiresAt: approval.expiresAt
+            });
+            return {
+                token,
+                expiresAt: new Date(approval.expiresAt).toISOString()
+            };
+        },
+        consumeExecution({ token, sqlText, parameters }, now = nowMs()) {
+            purgeExpired(now);
+            const approval = executionTokens.get(token);
             if (!approval) {
                 throw new Error("Token di approvazione non valido o scaduto.");
             }
-            approvals.delete(token);
+            executionTokens.delete(token);
             if (approval.sqlText !== sqlText) {
                 throw new Error("Token di approvazione non valido per questa SQL.");
             }
