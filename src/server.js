@@ -109,7 +109,8 @@ function createMcpServer() {
                 connectionString: config.connectionString,
                 sqlText,
                 parameters: args?.parameters,
-                maxRows
+                maxRows,
+                queryTimeoutMs: config.queryTimeoutMs
             });
             return asTextResult({
                 success: true,
@@ -135,7 +136,8 @@ function createMcpServer() {
             const result = await runWriteQuery({
                 connectionString: config.connectionString,
                 sqlText,
-                parameters: args?.parameters
+                parameters: args?.parameters,
+                queryTimeoutMs: config.queryTimeoutMs
             });
 
             return asTextResult({
@@ -235,6 +237,13 @@ function withOriginValidation(req, res, next) {
     next();
 }
 
+function sendCorsPreflight(res) {
+    res.set("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Accept, mcp-session-id");
+    res.set("Access-Control-Max-Age", "600");
+    res.status(204).send();
+}
+
 function sendMissingSession(res) {
     res.status(400).json(createErrorResponse("Bad Request: Missing session ID"));
 }
@@ -249,6 +258,9 @@ const app = createMcpExpressApp({
 });
 const transports = {};
 app.use(withOriginValidation);
+app.options(config.server.path, (_req, res) => {
+    sendCorsPreflight(res);
+});
 
 app.get("/health", (_req, res) => {
     res.json({

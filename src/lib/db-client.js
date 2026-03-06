@@ -37,9 +37,12 @@ async function getPool(connectionString) {
     return poolPromise;
 }
 
-export async function runReadQuery({ connectionString, sqlText, parameters, maxRows }) {
+export async function runReadQuery({ connectionString, sqlText, parameters, maxRows, queryTimeoutMs }) {
     const pool = await getPool(connectionString);
     const request = pool.request();
+    if (Number.isFinite(queryTimeoutMs) && queryTimeoutMs > 0) {
+        request.timeout = queryTimeoutMs;
+    }
     mapParameters(request, parameters);
     const result = await request.query(sqlText);
     const rows = Array.isArray(result.recordset) ? result.recordset.slice(0, maxRows) : [];
@@ -50,9 +53,12 @@ export async function runReadQuery({ connectionString, sqlText, parameters, maxR
     };
 }
 
-export async function runWriteQuery({ connectionString, sqlText, parameters }) {
+export async function runWriteQuery({ connectionString, sqlText, parameters, queryTimeoutMs }) {
     const pool = await getPool(connectionString);
     const request = pool.request();
+    if (Number.isFinite(queryTimeoutMs) && queryTimeoutMs > 0) {
+        request.timeout = queryTimeoutMs;
+    }
     mapParameters(request, parameters);
     const result = await request.query(sqlText);
     return {
