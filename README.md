@@ -21,6 +21,7 @@ npm start
 ```
 
 `DB_DEV_CONNECTION_STRING` deve essere fornita a runtime. Il server non la legge da `.env`.
+I file `.env.example` / `config.local.example.env` non devono contenere il segreto DB DEV.
 
 Server esposto in locale su `http://127.0.0.1:8781/mcp` (configurabile via env).
 Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
@@ -31,6 +32,7 @@ Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
 - `DB_DEV_MAX_ROWS` (default `500`)
 - `DB_DEV_QUERY_TIMEOUT_MS` (default `9000`)
 - `DB_DEV_WRITE_APPROVAL_TTL_MS` (default `300000`)
+- `MCP_DEV_SESSION_TTL_MS` (default `1800000`)
 - `MCP_DEV_HOST` (default `127.0.0.1`)
 - `MCP_DEV_PORT` (default `8781`)
 - `MCP_DEV_PATH` (default `/mcp`)
@@ -61,3 +63,10 @@ File: `config/mcp.servers.example.json`
 1. Chiamare `db_dev_request_write_approval` con SQL, parametri e motivo.
 2. Ottenere `approvalToken` one-time dal server.
 3. Solo dopo conferma umana reale, chiamare `db_dev_write` con la stessa SQL, gli stessi parametri e il token.
+4. Se il token scade o SQL/parametri cambiano, richiedere un nuovo token.
+
+## Note operative
+
+- `DB_DEV_CONNECTION_STRING` va passata nel processo di avvio o dal launcher esterno, non salvata nel repo.
+- Le sessioni MCP inattive decadono automaticamente dopo `MCP_DEV_SESSION_TTL_MS`.
+- `MCP_DEV_ALLOWED_HOSTS` viene normalizzato in lowercase per evitare mismatch dovuti al casing.
