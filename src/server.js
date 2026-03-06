@@ -7,9 +7,11 @@ import { getDevConfig } from "./lib/config.js";
 import { runReadQuery, runWriteQuery } from "./lib/db-client.js";
 import { assertReadOnlySql, assertWriteSql } from "./lib/sql-guard.js";
 import { createWriteApprovalStore } from "./lib/write-approval.js";
+import { createSessionStore } from "./lib/session-store.js";
 
 const config = getDevConfig();
 const writeApprovals = createWriteApprovalStore({ ttlMs: config.writeApprovalTtlMs });
+const sessions = createSessionStore({ ttlMs: config.sessionTtlMs });
 
 function asTextResult(payload) {
     return {
@@ -293,7 +295,6 @@ const app = createMcpExpressApp({
     host: config.server.host,
     allowedHosts: config.server.allowedHosts?.length ? config.server.allowedHosts : undefined
 });
-const transports = {};
 app.use(withOriginValidation);
 app.options(config.server.path, (_req, res) => {
     sendCorsPreflight(res);
@@ -305,7 +306,8 @@ app.get("/health", (_req, res) => {
         server: "llm-db-dev-mcp",
         endpoint: config.server.path,
         pid: process.pid,
-        uptimeSec: Math.floor(process.uptime())
+        uptimeSec: Math.floor(process.uptime()),
+        activeSessions: sessions.size()
     });
 });
 
@@ -316,13 +318,16 @@ app.post(config.server.path, async (req, res) => {
     let transport;
 
     try {
-        if (sessionId && transports[sessionId]) {
-            transport = transports[sessionId];
+        if (sessionId) {
+            transport = sessions.get(sessionId);
+        }
+
+        if (sessionId && transport) {
             await transport.handleRequest(req, res, req.body);
             return;
         }
 
-        if (sessionId && !transports[sessionId]) {
+        if (sessionId && !transport) {
             sendUnknownSession(res);
             return;
         }
@@ -338,14 +343,14 @@ app.post(config.server.path, async (req, res) => {
                 sessionIdGenerator: () => randomUUID(),
                 enableJsonResponse: !config.server.sseEnabled,
                 onsessioninitialized: sid => {
-                    transports[sid] = transport;
+                    sessions.set(sid, transport);
                 }
             });
 
             transport.onclose = () => {
                 const sid = transport.sessionId;
-                if (sid && transports[sid]) {
-                    delete transports[sid];
+                if (sid) {
+                    sessions.delete(sid);
                 }
             };
 
@@ -376,13 +381,14 @@ app.get(config.server.path, async (req, res) => {
     }
 
     const sessionId = normalizeHeaderValue(rawSessionId);
-    if (!sessionId || !transports[sessionId]) {
+    const transport = sessionId ? sessions.get(sessionId) : null;
+    if (!sessionId || !transport) {
         sendUnknownSession(res);
         return;
     }
 
     try {
-        await transports[sessionId].handleRequest(req, res);
+        await transport.handleRequest(req, res);
     } catch (error) {
         if (!res.headersSent) {
             const message = error instanceof Error ? error.message : "Internal server error";
@@ -399,13 +405,14 @@ app.delete(config.server.path, async (req, res) => {
     }
 
     const sessionId = normalizeHeaderValue(rawSessionId);
-    if (!sessionId || !transports[sessionId]) {
+    const transport = sessionId ? sessions.get(sessionId) : null;
+    if (!sessionId || !transport) {
         sendUnknownSession(res);
         return;
     }
 
     try {
-        await transports[sessionId].handleRequest(req, res);
+        await transport.handleRequest(req, res);
     } catch (error) {
         if (!res.headersSent) {
             const message = error instanceof Error ? error.message : "Internal server error";
