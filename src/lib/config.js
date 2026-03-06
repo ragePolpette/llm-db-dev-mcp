@@ -18,7 +18,7 @@ function parseCsvList(value, fallback) {
         .split(",")
         .map(item => item.trim())
         .filter(Boolean);
-    return list.length ? list : [...fallback];
+    return list.length ? uniqueLower(list) : [...fallback];
 }
 
 function uniqueLower(items) {
@@ -30,7 +30,7 @@ function uniqueLower(items) {
         const lower = raw.toLowerCase();
         if (seen.has(lower)) continue;
         seen.add(lower);
-        out.push(raw);
+        out.push(lower);
     }
     return out;
 }

@@ -56,3 +56,35 @@ test("getDevConfig accepts DB_DEV_CONNECTION_STRING from process env", async () 
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
 });
+
+test("getDevConfig normalizes allowed host casing", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-db-dev-config-"));
+    const originalCwd = process.cwd();
+    const originalEnv = process.env.DB_DEV_CONNECTION_STRING;
+    const originalHosts = process.env.MCP_DEV_ALLOWED_HOSTS;
+
+    try {
+        process.chdir(tempDir);
+        process.env.DB_DEV_CONNECTION_STRING = "Server=runtime;";
+        process.env.MCP_DEV_ALLOWED_HOSTS = "LocalHost,EXAMPLE.internal,LOCALHOST";
+
+        const moduleUrl = new URL(`../src/lib/config.js?case=${Date.now()}-hosts`, import.meta.url);
+        const configModule = await import(moduleUrl);
+        const config = configModule.getDevConfig();
+
+        assert.deepEqual(config.server.allowedHosts, ["localhost", "example.internal"]);
+    } finally {
+        process.chdir(originalCwd);
+        if (originalEnv === undefined) {
+            delete process.env.DB_DEV_CONNECTION_STRING;
+        } else {
+            process.env.DB_DEV_CONNECTION_STRING = originalEnv;
+        }
+        if (originalHosts === undefined) {
+            delete process.env.MCP_DEV_ALLOWED_HOSTS;
+        } else {
+            process.env.MCP_DEV_ALLOWED_HOSTS = originalHosts;
+        }
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+});
