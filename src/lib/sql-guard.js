@@ -1,6 +1,6 @@
 const READ_ONLY_START = /^\s*(select|with)\b/i;
 const FORBIDDEN_KEYWORDS = /\b(insert|update|delete|merge|alter|drop|truncate|create|exec|execute|grant|revoke|deny)\b/i;
-const HARD_BLOCKED_WRITE_KEYWORDS = /\b(delete|drop)\b/i;
+const HARD_BLOCKED_WRITE_KEYWORDS = /\b(delete|drop|exec|execute)\b/i;
 const WRITE_KEYWORDS = /\b(insert|update|merge|alter|truncate|create)\b/i;
 
 function sanitizeSqlInput(sql) {
@@ -33,7 +33,7 @@ export function assertReadOnlySql(sql) {
 export function assertWriteSql(sql) {
     const normalized = sanitizeSqlInput(sql);
     if (HARD_BLOCKED_WRITE_KEYWORDS.test(normalized)) {
-        throw new Error("Query bloccata: DELETE e DROP sono sempre vietati in db_dev_write.");
+        throw new Error("Query bloccata: DELETE, DROP, EXEC ed EXECUTE sono sempre vietati in db_dev_write.");
     }
     if (!WRITE_KEYWORDS.test(normalized)) {
         throw new Error("Query di scrittura non valida: nessuna operazione write rilevata.");
