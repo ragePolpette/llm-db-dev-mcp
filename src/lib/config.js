@@ -107,6 +107,7 @@ export function getDevConfig() {
         connectionString,
         maxRows: Math.max(1, Math.min(toInt(process.env.DB_DEV_MAX_ROWS, 500), 5000)),
         queryTimeoutMs: Math.max(1000, Math.min(toInt(process.env.DB_DEV_QUERY_TIMEOUT_MS, 9000), 60000)),
+        writeApprovalTtlMs: Math.max(10000, Math.min(toInt(process.env.DB_DEV_WRITE_APPROVAL_TTL_MS, 300000), 3600000)),
         modelsDir,
         server: {
             host: process.env.MCP_DEV_HOST || "127.0.0.1",

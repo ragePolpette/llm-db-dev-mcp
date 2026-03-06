@@ -4,7 +4,7 @@ MCP server per DB di sviluppo SQL Server.
 
 Regole implementate:
 - Lettura: sempre consentita (`db_dev_read`).
-- Scrittura: consentita solo se l'agente ha prima ricevuto conferma esplicita utente in chat (`confirmedByUser=true`).
+- Scrittura: consentita solo con `approvalToken` one-time emesso dal server.
 - Sicurezza hard-block: `DELETE` e `DROP` sono sempre vietati.
 
 ## Setup
@@ -29,6 +29,8 @@ Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
 
 - `DB_DEV_CONNECTION_STRING` (obbligatoria, solo runtime/process env)
 - `DB_DEV_MAX_ROWS` (default `500`)
+- `DB_DEV_QUERY_TIMEOUT_MS` (default `9000`)
+- `DB_DEV_WRITE_APPROVAL_TTL_MS` (default `300000`)
 - `MCP_DEV_HOST` (default `127.0.0.1`)
 - `MCP_DEV_PORT` (default `8781`)
 - `MCP_DEV_PATH` (default `/mcp`)
@@ -53,3 +55,9 @@ Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
 ## Esempio configurazione MCP (Codex/Client)
 
 File: `config/mcp.servers.example.json`
+
+## Flusso write sicuro
+
+1. Chiamare `db_dev_request_write_approval` con SQL, parametri e motivo.
+2. Ottenere `approvalToken` one-time dal server.
+3. Solo dopo conferma umana reale, chiamare `db_dev_write` con la stessa SQL, gli stessi parametri e il token.

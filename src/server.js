@@ -6,8 +6,10 @@ import { CallToolRequestSchema, isInitializeRequest, ListToolsRequestSchema } fr
 import { getDevConfig } from "./lib/config.js";
 import { runReadQuery, runWriteQuery } from "./lib/db-client.js";
 import { assertReadOnlySql, assertWriteSql } from "./lib/sql-guard.js";
+import { createWriteApprovalStore } from "./lib/write-approval.js";
 
 const config = getDevConfig();
+const writeApprovals = createWriteApprovalStore({ ttlMs: config.writeApprovalTtlMs });
 
 function asTextResult(payload) {
     return {
@@ -58,8 +60,8 @@ function createMcpServer() {
                 }
             },
             {
-                name: "db_dev_write",
-                description: "DB DEV: scrittura SQL consentita solo dopo conferma esplicita dell'utente in chat. DELETE e DROP sono sempre bloccati. Non richiede token/chiavi.",
+                name: "db_dev_request_write_approval",
+                description: "DB DEV: valida una write SQL e restituisce un token one-time da usare in db_dev_write dopo conferma umana out-of-band.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -72,20 +74,39 @@ function createMcpServer() {
                             description: "Parametri query (key/value).",
                             additionalProperties: true
                         },
-                        confirmedByUser: {
-                            type: "boolean",
-                            description: "Deve essere true solo dopo risposta esplicita dell'utente (es: 'si, procedi')."
-                        },
-                        userApprovalText: {
+                        reason: {
                             type: "string",
-                            description: "Testo breve della conferma utente ricevuta (audit locale)."
+                            description: "Motivazione della modifica."
+                        }
+                    },
+                    required: ["sql"]
+                }
+            },
+            {
+                name: "db_dev_write",
+                description: "DB DEV: scrittura SQL consentita solo con token one-time emesso da db_dev_request_write_approval. DELETE e DROP sono sempre bloccati.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        sql: {
+                            type: "string",
+                            description: "Query SQL di scrittura consentita (INSERT/UPDATE/MERGE/ALTER/TRUNCATE/CREATE). DELETE e DROP vietati."
+                        },
+                        parameters: {
+                            type: "object",
+                            description: "Parametri query (key/value).",
+                            additionalProperties: true
+                        },
+                        approvalToken: {
+                            type: "string",
+                            description: "Token one-time restituito da db_dev_request_write_approval."
                         },
                         reason: {
                             type: "string",
                             description: "Motivazione della modifica."
                         }
                     },
-                    required: ["sql", "confirmedByUser", "userApprovalText"]
+                    required: ["sql", "approvalToken"]
                 }
             },
             {
@@ -121,18 +142,34 @@ function createMcpServer() {
             });
         }
 
-        if (name === "db_dev_write") {
-            if (!args?.confirmedByUser) {
-                throw new Error(
-                    "Scrittura bloccata: prima chiedi all'utente 'Posso eseguire questo UPDATE/INSERT?' e riprova con confirmedByUser=true."
-                );
-            }
-            const userApprovalText = String(args?.userApprovalText || "").trim();
-            if (!userApprovalText) {
-                throw new Error("Scrittura bloccata: userApprovalText obbligatorio (riporta la conferma utente).");
-            }
-
+        if (name === "db_dev_request_write_approval") {
             const sqlText = assertWriteSql(args?.sql);
+            const approval = writeApprovals.issue({
+                sqlText,
+                parameters: args?.parameters,
+                reason: args?.reason
+            });
+            return asTextResult({
+                success: true,
+                mode: "write-approval",
+                sqlText,
+                reason: args?.reason || "",
+                approvalToken: approval.token,
+                expiresAt: approval.expiresAt
+            });
+        }
+
+        if (name === "db_dev_write") {
+            const approvalToken = String(args?.approvalToken || "").trim();
+            if (!approvalToken) {
+                throw new Error("Scrittura bloccata: approvalToken obbligatorio.");
+            }
+            const sqlText = assertWriteSql(args?.sql);
+            const approval = writeApprovals.consume({
+                token: approvalToken,
+                sqlText,
+                parameters: args?.parameters
+            });
             const result = await runWriteQuery({
                 connectionString: config.connectionString,
                 sqlText,
@@ -144,7 +181,7 @@ function createMcpServer() {
                 success: true,
                 mode: "write",
                 reason: args?.reason || "",
-                userApprovalText,
+                approvalIssuedAt: new Date(approval.issuedAt).toISOString(),
                 rowsAffected: result.rowsAffected,
                 output: result.output
             });
@@ -156,11 +193,11 @@ function createMcpServer() {
                 purpose: "Accesso SQL al DB di sviluppo (analisi + write controllate).",
                 capabilities: [
                     "db_dev_read: SELECT/WITH",
-                    "db_dev_write: write consentite solo dopo consenso utente esplicito, con DELETE/DROP sempre bloccati"
+                    "db_dev_request_write_approval: emette token one-time per una write valida",
+                    "db_dev_write: write consentite solo con approvalToken valido, con DELETE/DROP sempre bloccati"
                 ],
                 constraints: [
-                    "Nessun token di conferma richiesto",
-                    "L'agente deve chiedere il permesso prima di ogni write",
+                    "Il token di conferma è generato dal server e vale per una sola SQL/parametri",
                     "DELETE e DROP sono sempre vietati",
                     "SQL write comunque validata da sql-guard"
                 ]
