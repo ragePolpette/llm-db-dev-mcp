@@ -45,3 +45,32 @@ test("approval token rejects mismatched sql or parameters", () => {
         /non valido per questa SQL/
     );
 });
+
+test("approval token expires after ttl", () => {
+    const approvals = createWriteApprovalStore({ ttlMs: 1000 });
+    const originalNow = Date.now;
+    let token;
+
+    try {
+        Date.now = () => 1000;
+        ({ token } = approvals.issue({
+            sqlText: "UPDATE T SET Name = @name WHERE Id = @id",
+            parameters: { id: 1, name: "ok" }
+        }));
+    } finally {
+        Date.now = originalNow;
+    }
+
+    assert.throws(
+        () =>
+            approvals.consume(
+                {
+                    token,
+                    sqlText: "UPDATE T SET Name = @name WHERE Id = @id",
+                    parameters: { id: 1, name: "ok" }
+                },
+                2001
+            ),
+        /non valido o scaduto/
+    );
+});

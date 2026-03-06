@@ -16,7 +16,11 @@ function stableSerialize(value) {
 export function createWriteApprovalStore({ ttlMs = 5 * 60 * 1000 } = {}) {
     const approvals = new Map();
 
-    function purgeExpired(now = Date.now()) {
+    function nowMs() {
+        return Date.now();
+    }
+
+    function purgeExpired(now = nowMs()) {
         for (const [token, approval] of approvals.entries()) {
             if (approval.expiresAt <= now) {
                 approvals.delete(token);
@@ -28,7 +32,7 @@ export function createWriteApprovalStore({ ttlMs = 5 * 60 * 1000 } = {}) {
         issue({ sqlText, parameters, reason }) {
             purgeExpired();
             const token = randomUUID();
-            const issuedAt = Date.now();
+            const issuedAt = nowMs();
             approvals.set(token, {
                 sqlText,
                 parametersDigest: stableSerialize(parameters || {}),
@@ -41,8 +45,8 @@ export function createWriteApprovalStore({ ttlMs = 5 * 60 * 1000 } = {}) {
                 expiresAt: new Date(issuedAt + ttlMs).toISOString()
             };
         },
-        consume({ token, sqlText, parameters }) {
-            purgeExpired();
+        consume({ token, sqlText, parameters }, now = nowMs()) {
+            purgeExpired(now);
             const approval = approvals.get(token);
             if (!approval) {
                 throw new Error("Token di approvazione non valido o scaduto.");
