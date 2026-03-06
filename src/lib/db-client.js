@@ -1,7 +1,15 @@
-import sql from "mssql";
 import { isIP } from "node:net";
 
 let poolPromise;
+let sqlDriver;
+
+async function getSqlDriver() {
+    if (!sqlDriver) {
+        const module = await import("mssql");
+        sqlDriver = module.default;
+    }
+    return sqlDriver;
+}
 
 function mapParameters(request, parameters) {
     if (!parameters || typeof parameters !== "object") return;
@@ -30,9 +38,18 @@ async function getPool(connectionString) {
         throw new Error("Connection string non configurata (DB_DEV_CONNECTION_STRING).");
     }
     if (!poolPromise) {
-        const pool = new sql.ConnectionPool(connectionString);
+        const driver = await getSqlDriver();
+        const pool = new driver.ConnectionPool(connectionString);
         disableSniForIpServer(pool);
-        poolPromise = pool.connect();
+        poolPromise = pool.connect().catch(async error => {
+            poolPromise = undefined;
+            try {
+                await pool.close();
+            } catch {
+                // Ignore close failures for broken pools.
+            }
+            throw error;
+        });
     }
     return poolPromise;
 }
@@ -65,5 +82,13 @@ export async function runWriteQuery({ connectionString, sqlText, parameters, que
         rowsAffected: result.rowsAffected || [],
         output: result.output || {}
     };
+}
+
+export function __resetPoolForTests() {
+    poolPromise = undefined;
+}
+
+export function __setSqlDriverForTests(driver) {
+    sqlDriver = driver;
 }
 
