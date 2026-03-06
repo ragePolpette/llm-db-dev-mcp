@@ -58,9 +58,10 @@ function getLocalHostFallback() {
 
 let envLoaded = false;
 
-function loadDotEnvFromCwd() {
+function loadDotEnvFromCwd(skipKeys = []) {
     if (envLoaded) return;
     envLoaded = true;
+    const skipped = new Set(skipKeys.map(key => String(key || "").trim()).filter(Boolean));
 
     const envPath = path.resolve(process.cwd(), ".env");
     if (!fs.existsSync(envPath)) return;
@@ -73,6 +74,9 @@ function loadDotEnvFromCwd() {
         if (idx <= 0) continue;
 
         const key = line.slice(0, idx).trim();
+        if (skipped.has(key)) {
+            continue;
+        }
         let value = line.slice(idx + 1);
         if (
             (value.startsWith("\"") && value.endsWith("\"")) ||
@@ -88,15 +92,19 @@ function loadDotEnvFromCwd() {
 }
 
 export function getDevConfig() {
-    loadDotEnvFromCwd();
+    loadDotEnvFromCwd(["DB_DEV_CONNECTION_STRING"]);
     const localFallback = getLocalHostFallback();
     const modelsDirRaw = process.env.MCP_MODELS_DIR || ".local/models";
     const modelsDir = path.isAbsolute(modelsDirRaw)
         ? modelsDirRaw
         : path.resolve(process.cwd(), modelsDirRaw);
+    const connectionString = String(process.env.DB_DEV_CONNECTION_STRING || "").trim();
+    if (!connectionString) {
+        throw new Error("DB_DEV_CONNECTION_STRING deve essere fornita a runtime; non viene letta da .env.");
+    }
 
     return {
-        connectionString: process.env.DB_DEV_CONNECTION_STRING || "",
+        connectionString,
         maxRows: Math.max(1, Math.min(toInt(process.env.DB_DEV_MAX_ROWS, 500), 5000)),
         queryTimeoutMs: Math.max(1000, Math.min(toInt(process.env.DB_DEV_QUERY_TIMEOUT_MS, 9000), 60000)),
         modelsDir,
@@ -115,4 +123,8 @@ export function getDevConfig() {
             )
         },
     };
+}
+
+export function __resetEnvLoaderForTests() {
+    envLoaded = false;
 }

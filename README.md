@@ -9,22 +9,25 @@ Regole implementate:
 
 ## Setup
 
-1. Copia `.env.example` in `.env` (o imposta variabili ambiente).
-2. Installa dipendenze:
+1. Installa dipendenze:
 ```bash
 npm install
 ```
+2. Esporta `DB_DEV_CONNECTION_STRING` nel processo di avvio.
 3. Avvia server MCP:
 ```bash
+$env:DB_DEV_CONNECTION_STRING="Server=127.0.0.1;Database=YourDevDb;User Id=your_user;Password=your_password;TrustServerCertificate=True;"
 npm start
 ```
+
+`DB_DEV_CONNECTION_STRING` deve essere fornita a runtime. Il server non la legge da `.env`.
 
 Server esposto in locale su `http://127.0.0.1:8781/mcp` (configurabile via env).
 Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
 
 ## Variabili ambiente
 
-- `DB_DEV_CONNECTION_STRING` (obbligatoria)
+- `DB_DEV_CONNECTION_STRING` (obbligatoria, solo runtime/process env)
 - `DB_DEV_MAX_ROWS` (default `500`)
 - `MCP_DEV_HOST` (default `127.0.0.1`)
 - `MCP_DEV_PORT` (default `8781`)
@@ -40,8 +43,10 @@ Configurazione client consigliata: `type=stdio` + `npx mcp-remote`.
   - SQL consentita: solo `SELECT` / `WITH`.
   - Blocca keyword write/admin (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `EXEC`, ...).
 - `db_dev_write`
-  - Query write con conferma esplicita utente (nessun token richiesto).
+  - Query write consentita solo con token di approvazione emesso dal server.
   - `DELETE` e `DROP` sempre bloccati dal guard SQL.
+- `db_dev_request_write_approval`
+  - Prepara una write, valida la SQL e restituisce un token one-time per l'esecuzione.
 - `db_dev_info`
   - Spiega scopo e limiti del MCP DB DEV.
 
