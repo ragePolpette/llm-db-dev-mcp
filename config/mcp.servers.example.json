@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "llm-db-dev-mcp": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "mcp-remote",
+        "http://127.0.0.1:8781/mcp",
+        "--transport",
+        "http-only"
+      ],
+      "env": {}
+    }
+  }
+}
