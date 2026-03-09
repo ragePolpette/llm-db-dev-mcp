@@ -55,5 +55,7 @@ models/
 # IDE / OS
 .idea/
 .vscode/
+.claude/
+claude.md
 .DS_Store
 Thumbs.db
