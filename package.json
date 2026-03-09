@@ -1,0 +1,15 @@
+{
+  "name": "llm-db-dev-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server for SQL Server development DB (read by default, write requires explicit confirmation; DELETE and DROP always blocked).",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "mssql": "^11.0.1"
+  }
+}
