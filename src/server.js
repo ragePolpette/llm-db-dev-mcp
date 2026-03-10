@@ -62,6 +62,11 @@ function createMcpServer() {
             {
                 name: "db_dev_write",
                 description: "DB DEV: scrittura SQL diretta. DELETE, DROP, EXEC ed EXECUTE sono sempre bloccati dal guard SQL.",
+                annotations: {
+                    readOnlyHint: false,
+                    destructiveHint: true,
+                    idempotentHint: false
+                },
                 inputSchema: {
                     type: "object",
                     properties: {
