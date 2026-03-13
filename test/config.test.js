@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-test("getDevConfig requires DB_DEV_CONNECTION_STRING from runtime env", async () => {
+test("getDevConfig rejects DB_DEV_CONNECTION_STRING inside dot env", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-db-dev-config-"));
     const originalCwd = process.cwd();
     const originalEnv = process.env.DB_DEV_CONNECTION_STRING;
@@ -19,7 +19,7 @@ test("getDevConfig requires DB_DEV_CONNECTION_STRING from runtime env", async ()
 
         assert.throws(
             () => configModule.getDevConfig(),
-            /DB_DEV_CONNECTION_STRING deve essere fornita a runtime/
+            /Il file \.env non puo' contenere DB_DEV_CONNECTION_STRING/
         );
     } finally {
         process.chdir(originalCwd);
@@ -32,7 +32,7 @@ test("getDevConfig requires DB_DEV_CONNECTION_STRING from runtime env", async ()
     }
 });
 
-test("getDevConfig ignores case-variant DB_DEV_CONNECTION_STRING entries from dot env", async () => {
+test("getDevConfig rejects case-variant DB_DEV_CONNECTION_STRING entries from dot env", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-db-dev-config-"));
     const originalCwd = process.cwd();
     const originalEnv = process.env.DB_DEV_CONNECTION_STRING;
@@ -47,7 +47,35 @@ test("getDevConfig ignores case-variant DB_DEV_CONNECTION_STRING entries from do
 
         assert.throws(
             () => configModule.getDevConfig(),
-            /DB_DEV_CONNECTION_STRING deve essere fornita a runtime/
+            /Il file \.env non puo' contenere db_dev_connection_string/i
+        );
+    } finally {
+        process.chdir(originalCwd);
+        if (originalEnv === undefined) {
+            delete process.env.DB_DEV_CONNECTION_STRING;
+        } else {
+            process.env.DB_DEV_CONNECTION_STRING = originalEnv;
+        }
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("getDevConfig still rejects dot env secret even when runtime env is present", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-db-dev-config-"));
+    const originalCwd = process.cwd();
+    const originalEnv = process.env.DB_DEV_CONNECTION_STRING;
+
+    try {
+        process.chdir(tempDir);
+        fs.writeFileSync(path.join(tempDir, ".env"), "DB_DEV_CONNECTION_STRING=from-dot-env\n");
+        process.env.DB_DEV_CONNECTION_STRING = "Server=runtime;";
+
+        const moduleUrl = new URL(`../src/lib/config.js?case=${Date.now()}-reject-even-with-runtime`, import.meta.url);
+        const configModule = await import(moduleUrl);
+
+        assert.throws(
+            () => configModule.getDevConfig(),
+            /Il file \.env non puo' contenere DB_DEV_CONNECTION_STRING/
         );
     } finally {
         process.chdir(originalCwd);
