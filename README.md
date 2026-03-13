@@ -24,6 +24,7 @@ npm start
 ```
 
 `DB_DEV_CONNECTION_STRING` deve essere fornita a runtime. Il server non la legge da `.env`.
+Se `.env` contiene `DB_DEV_CONNECTION_STRING`, l'avvio fallisce esplicitamente per evitare secret locali persistenti.
 I file `.env.example` / `config.local.example.env` non devono contenere il segreto DB DEV.
 
 Server esposto in locale su `http://127.0.0.1:8781/mcp` (configurabile via env).
@@ -74,5 +75,6 @@ File: `config/mcp.servers.example.json`
 ## Note operative
 
 - `DB_DEV_CONNECTION_STRING` va passata nel processo di avvio o dal launcher esterno, non salvata nel repo.
+- Il bootstrap rifiuta `.env` se contiene `DB_DEV_CONNECTION_STRING`, anche se la stessa variabile e' presente nel process env.
 - Le sessioni MCP inattive decadono automaticamente dopo `MCP_DEV_SESSION_TTL_MS`.
 - `MCP_DEV_ALLOWED_HOSTS` viene normalizzato in lowercase per evitare mismatch dovuti al casing.
