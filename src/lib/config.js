@@ -58,11 +58,14 @@ function getLocalHostFallback() {
 
 let envLoaded = false;
 
-function loadDotEnvFromCwd(skipKeys = []) {
+function loadDotEnvFromCwd({ skipKeys = [], forbiddenKeys = [] } = {}) {
     if (envLoaded) return;
     envLoaded = true;
     const skipped = new Set(
         skipKeys.map(key => String(key || "").trim().toLowerCase()).filter(Boolean)
+    );
+    const forbidden = new Set(
+        forbiddenKeys.map(key => String(key || "").trim().toLowerCase()).filter(Boolean)
     );
 
     const envPath = path.resolve(process.cwd(), ".env");
@@ -76,7 +79,13 @@ function loadDotEnvFromCwd(skipKeys = []) {
         if (idx <= 0) continue;
 
         const key = line.slice(0, idx).trim();
-        if (skipped.has(key.toLowerCase())) {
+        const normalizedKey = key.toLowerCase();
+        if (forbidden.has(normalizedKey)) {
+            throw new Error(
+                `Il file .env non puo' contenere ${key}: usa solo variabili runtime/process env per i segreti DB DEV.`
+            );
+        }
+        if (skipped.has(normalizedKey)) {
             continue;
         }
         let value = line.slice(idx + 1);
@@ -94,7 +103,10 @@ function loadDotEnvFromCwd(skipKeys = []) {
 }
 
 export function getDevConfig() {
-    loadDotEnvFromCwd(["DB_DEV_CONNECTION_STRING"]);
+    loadDotEnvFromCwd({
+        skipKeys: ["DB_DEV_CONNECTION_STRING"],
+        forbiddenKeys: ["DB_DEV_CONNECTION_STRING"]
+    });
     const localFallback = getLocalHostFallback();
     const modelsDirRaw = process.env.MCP_MODELS_DIR || ".local/models";
     const modelsDir = path.isAbsolute(modelsDirRaw)
