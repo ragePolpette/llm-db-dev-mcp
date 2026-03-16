@@ -22,6 +22,19 @@ function asTextResult(payload) {
     };
 }
 
+function safeJson(value) {
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return JSON.stringify({ error: "serialization_failed" });
+    }
+}
+
+function logDbEvent(event, payload) {
+    const timestamp = new Date().toISOString();
+    process.stderr.write(`[DB_DEV_MCP] ${timestamp} ${event} ${safeJson(payload)}\n`);
+}
+
 function createMcpServer() {
     const server = new Server(
         {
@@ -104,6 +117,12 @@ function createMcpServer() {
         if (name === "db_dev_read") {
             const sqlText = assertReadOnlySql(args?.sql);
             const maxRows = Math.max(1, Math.min(Number(args?.maxRows || config.maxRows), 5000));
+            logDbEvent("query_in", {
+                tool: name,
+                sql: sqlText,
+                parameters: args?.parameters ?? {},
+                maxRows
+            });
             const result = await runReadQuery({
                 connectionString: config.connectionString,
                 sqlText,
@@ -111,30 +130,46 @@ function createMcpServer() {
                 maxRows,
                 queryTimeoutMs: config.queryTimeoutMs
             });
-            return asTextResult({
+            const payload = {
                 success: true,
                 mode: "read",
                 rowCount: result.rowCount,
                 truncated: result.truncated,
                 rows: result.rows
+            };
+            logDbEvent("query_out", {
+                tool: name,
+                response: payload
             });
+            return asTextResult(payload);
         }
 
         if (name === "db_dev_write") {
             const sqlText = assertWriteSql(args?.sql);
+            logDbEvent("query_in", {
+                tool: name,
+                sql: sqlText,
+                parameters: args?.parameters ?? {},
+                reason: args?.reason || ""
+            });
             const result = await runWriteQuery({
                 connectionString: config.connectionString,
                 sqlText,
                 parameters: args?.parameters,
                 queryTimeoutMs: config.queryTimeoutMs
             });
-            return asTextResult({
+            const payload = {
                 success: true,
                 mode: "write",
                 reason: args?.reason || "",
                 rowsAffected: result.rowsAffected,
                 output: result.output
+            };
+            logDbEvent("query_out", {
+                tool: name,
+                response: payload
             });
+            return asTextResult(payload);
         }
 
         if (name === "db_dev_info") {
