@@ -7,6 +7,7 @@ import { getDevConfig } from "./lib/config.js";
 import { runReadQuery, runWriteQuery } from "./lib/db-client.js";
 import { assertReadOnlySql, assertWriteSql } from "./lib/sql-guard.js";
 import { createSessionStore } from "./lib/session-store.js";
+import { applyJsonAcceptCompatibility } from "./lib/accept-compat.js";
 
 const config = getDevConfig();
 const sessions = createSessionStore({ ttlMs: config.sessionTtlMs });
@@ -277,6 +278,12 @@ const app = createMcpExpressApp({
     allowedHosts: config.server.allowedHosts?.length ? config.server.allowedHosts : undefined
 });
 app.use(withOriginValidation);
+app.use((req, _res, next) => {
+    if (req.path === config.server.path) {
+        applyJsonAcceptCompatibility(req.headers, { sseEnabled: config.server.sseEnabled });
+    }
+    next();
+});
 app.options(config.server.path, (_req, res) => {
     sendCorsPreflight(res);
 });
