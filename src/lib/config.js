@@ -7,6 +7,14 @@ function toInt(value, fallback) {
     return Number.isNaN(parsed) ? fallback : parsed;
 }
 
+function parseSessionTtlMs(value, fallback) {
+    const parsed = toInt(value, fallback);
+    if (parsed <= 0) {
+        return 0;
+    }
+    return Math.max(60000, Math.min(parsed, 86400000));
+}
+
 function toBool(value, fallback = false) {
     if (value === undefined || value === null || value === "") return fallback;
     return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
@@ -121,7 +129,7 @@ export function getDevConfig() {
         connectionString,
         maxRows: Math.max(1, Math.min(toInt(process.env.DB_DEV_MAX_ROWS, 500), 5000)),
         queryTimeoutMs: Math.max(1000, Math.min(toInt(process.env.DB_DEV_QUERY_TIMEOUT_MS, 9000), 60000)),
-        sessionTtlMs: Math.max(60000, Math.min(toInt(process.env.MCP_DEV_SESSION_TTL_MS, 1800000), 86400000)),
+        sessionTtlMs: parseSessionTtlMs(process.env.MCP_DEV_SESSION_TTL_MS, 0),
         modelsDir,
         server: {
             host: process.env.MCP_DEV_HOST || "127.0.0.1",
