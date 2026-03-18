@@ -1,7 +1,11 @@
 export function createSessionStore({ ttlMs = 30 * 60 * 1000 } = {}) {
     const sessions = new Map();
+    const ttlEnabled = Number(ttlMs) > 0;
 
     function prune(now = Date.now()) {
+        if (!ttlEnabled) {
+            return;
+        }
         for (const [sessionId, entry] of sessions.entries()) {
             if (entry.expiresAt <= now) {
                 sessions.delete(sessionId);
@@ -13,7 +17,7 @@ export function createSessionStore({ ttlMs = 30 * 60 * 1000 } = {}) {
         prune(now);
         sessions.set(sessionId, {
             transport,
-            expiresAt: now + ttlMs
+            expiresAt: ttlEnabled ? now + ttlMs : Number.POSITIVE_INFINITY
         });
     }
 
@@ -23,7 +27,9 @@ export function createSessionStore({ ttlMs = 30 * 60 * 1000 } = {}) {
         if (!entry) {
             return null;
         }
-        entry.expiresAt = now + ttlMs;
+        if (ttlEnabled) {
+            entry.expiresAt = now + ttlMs;
+        }
         return entry.transport;
     }
 
