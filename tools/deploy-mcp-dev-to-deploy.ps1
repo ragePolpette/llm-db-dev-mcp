@@ -1,7 +1,7 @@
 param(
     [string[]]$Services = @("llm-context", "llm-memory", "llm-db-dev-mcp", "llm-db-prod-mcp", "mcp-dashboard"),
-    [string]$DevRoot = "C:\Users\Gianmarco\Urgewalt\Yetzirah",
-    [string]$DeployRoot = "C:\Users\Gianmarco\Urgewalt\Binah"
+    [string]$DevRoot = ([System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))),
+    [string]$DeployRoot = ([System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\deploy-runtime")))
 )
 
 Set-StrictMode -Version Latest
@@ -196,7 +196,7 @@ foreach ($serviceName in $Services) {
     if ($svc.ContainsKey("StartScript")) {
         $scriptPath = Join-Path $PSScriptRoot $svc.StartScript
         $scriptArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $scriptPath,
-                        "-Mode", $svc.StartScriptMode, "-NoPrompt", "-BinahRoot", $DeployRoot)
+                        "-Mode", $svc.StartScriptMode, "-NoPrompt", "-DeployRoot", $DeployRoot)
         Start-Process pwsh -ArgumentList $scriptArgs -WindowStyle Hidden | Out-Null
     } else {
         Start-Process -FilePath $svc.StartExe -ArgumentList $svc.StartArgs -WorkingDirectory $deployPath | Out-Null
