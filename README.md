@@ -7,7 +7,7 @@
 > Use `llm-sql-db-mcp` for new work. This repository is kept only as historical reference for the original development-only flow.
 
 Questo progetto e' destinato a vivere come **repository standalone** dentro il workspace DEV `Yetzirah`.
-Il runtime locale, quando deployato, resta in `Binah\llm-db-dev-mcp`.
+Il runtime locale, quando deployato, resta in `runtime-root\llm-db-dev-mcp`.
 
 MCP server per DB di sviluppo SQL Server.
 
