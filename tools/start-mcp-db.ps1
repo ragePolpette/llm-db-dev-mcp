@@ -3,12 +3,12 @@ param(
     [ValidateSet("dev", "prod")]
     [string]$Mode,
     [switch]$NoPrompt,
-    [string]$BinahRoot
+    [string]$DeployRoot
 )
 
 $ErrorActionPreference = "Stop"
 
-function Resolve-BinahRoot {
+function Resolve-DeployRoot {
     param([string]$InputRoot)
 
     if ($InputRoot) {
@@ -55,7 +55,7 @@ function Export-Environment {
     }
 }
 
-$root = Resolve-BinahRoot -InputRoot $BinahRoot
+$root = Resolve-DeployRoot -InputRoot $DeployRoot
 $projectName = if ($Mode -eq "dev") { "llm-db-dev-mcp" } else { "llm-db-prod-mcp" }
 $projectPath = Join-Path $root $projectName
 $envPath = Join-Path $projectPath ".env"
